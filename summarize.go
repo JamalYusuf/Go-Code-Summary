@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"go/ast"
@@ -8,8 +10,10 @@ import (
 	"go/token"
 	"html/template"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -57,6 +61,7 @@ type ProjectOverview struct {
 	AvgCommentRatio float64
 	AvgComplexity   float64
 	GodocCoverage   float64
+	TestCoverage    float64
 	PackageCount    int
 	DependencyCount int
 	ProjectHealth   float64
@@ -372,7 +377,7 @@ func calculateMaintainability(lines, commentLines int, avgComplexity float64) fl
 }
 
 // generateMarkdown writes the Markdown summary.
-func generateMarkdown(summaries []CodeSummary, outputPath string) error {
+func generateMarkdown(summaries []CodeSummary, testCoverage float64, outputPath string) error {
 	var b strings.Builder
 	overview := computeProjectOverview(summaries)
 
@@ -388,6 +393,7 @@ func generateMarkdown(summaries []CodeSummary, outputPath string) error {
 		b.WriteString(fmt.Sprintf("- 📜 Average Comment-to-Code Ratio: %.2f%%\n", overview.AvgCommentRatio))
 		b.WriteString(fmt.Sprintf("- 🧠 Average Function Complexity: %.2f\n", overview.AvgComplexity))
 		b.WriteString(fmt.Sprintf("- 📖 Godoc Coverage: %.2f%%\n", overview.GodocCoverage))
+		b.WriteString(fmt.Sprintf("- 🎯 Total Test Coverage: %.2f\n", testCoverage))
 		b.WriteString(fmt.Sprintf("- 📦 Packages: %d\n", overview.PackageCount))
 		b.WriteString(fmt.Sprintf("- 🔗 External Dependencies: %d\n", overview.DependencyCount))
 		b.WriteString(fmt.Sprintf("- 🏥 Project Health Score: %.2f/100\n", overview.ProjectHealth))
@@ -456,7 +462,7 @@ func generateMarkdown(summaries []CodeSummary, outputPath string) error {
 }
 
 // generateHTML writes the HTML summary with visualizations.
-func generateHTML(summaries []CodeSummary, outputPath string) error {
+func generateHTML(summaries []CodeSummary, testCoverage float64, outputPath string) error {
 	const htmlTemplate = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -485,6 +491,7 @@ func generateHTML(summaries []CodeSummary, outputPath string) error {
             <li>📜 Average Comment-to-Code Ratio: {{printf "%.2f" .ProjectOverview.AvgCommentRatio}}%</li>
             <li>🧠 Average Function Complexity: {{printf "%.2f" .ProjectOverview.AvgComplexity}}</li>
             <li>📖 Godoc Coverage: {{printf "%.2f" .ProjectOverview.GodocCoverage}}%</li>
+			<li>🎯 Total Test Coverage: {{printf "%.2f" .ProjectOverview.TestCoverage}}%</li>
             <li>📦 Packages: {{.ProjectOverview.PackageCount}}</li>
             <li>🔗 External Dependencies: {{.ProjectOverview.DependencyCount}}</li>
             <li>🏥 Project Health Score: {{printf "%.2f" .ProjectOverview.ProjectHealth}}/100</li>
@@ -570,6 +577,7 @@ func generateHTML(summaries []CodeSummary, outputPath string) error {
 
 	overview := computeProjectOverview(summaries)
 	data := TemplateData{ProjectOverview: overview}
+	data.ProjectOverview.TestCoverage = testCoverage
 	for _, s := range summaries {
 		commentRatio := 0.0
 		if s.Lines > 0 {
@@ -691,7 +699,7 @@ func computeProjectOverview(summaries []CodeSummary) ProjectOverview {
 }
 
 // generateJSON writes the JSON summary.
-func generateJSON(summaries []CodeSummary, outputPath string) error {
+func generateJSON(summaries []CodeSummary, testCoverage float64, outputPath string) error {
 	type JSONSummary struct {
 		Filename           string     `json:"filename"`
 		Package            string     `json:"package"`
@@ -705,6 +713,7 @@ func generateJSON(summaries []CodeSummary, outputPath string) error {
 		LongFunctions      []FuncDecl `json:"long_functions"`
 		AvgComplexity      float64    `json:"avg_complexity"`
 		GodocCoverage      float64    `json:"godoc_coverage"`
+		TestCoverage       float64    `json:"test_coverage"`
 		MaxFunctionDepth   int        `json:"max_function_depth"`
 		MaintainabilityIdx float64    `json:"maintainability_index"`
 	}
@@ -741,6 +750,7 @@ func generateJSON(summaries []CodeSummary, outputPath string) error {
 			LongFunctions:      s.LongFunctions,
 			AvgComplexity:      s.AvgComplexity,
 			GodocCoverage:      s.GodocCoverage,
+			TestCoverage:       testCoverage,
 			MaxFunctionDepth:   s.MaxFunctionDepth,
 			MaintainabilityIdx: s.MaintainabilityIdx,
 		})
@@ -784,14 +794,16 @@ func main() {
 		return summaries[i].Filename < summaries[j].Filename
 	})
 
+	testCoverage := reportTestCoverage(rootDir)
+
 	var errors []error
-	if err := generateMarkdown(summaries, "go_code_summary.md"); err != nil {
+	if err := generateMarkdown(summaries, testCoverage, "go_code_summary.md"); err != nil {
 		errors = append(errors, fmt.Errorf("generating Markdown: %w", err))
 	}
-	if err := generateHTML(summaries, "go_code_summary.html"); err != nil {
+	if err := generateHTML(summaries, testCoverage, "go_code_summary.html"); err != nil {
 		errors = append(errors, fmt.Errorf("generating HTML: %w", err))
 	}
-	if err := generateJSON(summaries, "go_code_summary.json"); err != nil {
+	if err := generateJSON(summaries, testCoverage, "go_code_summary.json"); err != nil {
 		errors = append(errors, fmt.Errorf("generating JSON: %w", err))
 	}
 
@@ -803,4 +815,74 @@ func main() {
 	}
 
 	fmt.Println("Generated go_code_summary.md, go_code_summary.html, and go_code_summary.json")
+}
+
+func reportTestCoverage(path string) float64 {
+
+	cmd := exec.Command("go", "mod", "tidy")
+
+	// Run the command and capture the output
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		fmt.Println("Error running go mod tidy:", err)
+		return 0.0
+	}
+	fmt.Printf("go mod tidy result: %v\n", string(output))
+
+	err = runTests(path)
+	if err != nil {
+		return 0.0
+	}
+
+	report := parseReport(err)
+
+	return scanResult(report)
+}
+
+func runTests(path string) error {
+	out, err := exec.Command("go", "list", "./...").Output()
+	if err != nil {
+		fmt.Printf("failed to list packages: %v\n", err)
+		return err
+	}
+	packages := strings.Fields(string(out)) // split by lines or spaces
+
+	args := append([]string{"test", "-coverprofile=coverage.out"}, packages...)
+	cmd := exec.Command("go", args...)
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	if err != nil {
+		fmt.Printf("tests failed: %v\n", err)
+	}
+	return err
+}
+
+func parseReport(err error) []byte {
+	parse := exec.Command("go", "tool", "cover", "-func=coverage.out")
+	output, err := parse.Output()
+	if err != nil {
+		fmt.Printf("Failed to parse coverage: %v", err)
+	}
+	fmt.Println(string(output))
+	return output
+}
+
+func scanResult(output []byte) float64 {
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	var total string
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "total:") {
+			total = line
+			break
+		}
+	}
+	trimmed := strings.TrimSuffix(strings.Fields(total)[len(strings.Fields(total))-1], "%")
+	t, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil {
+		fmt.Printf("Failed to parse total to float64: %v", err)
+	}
+	return t
 }
