@@ -391,8 +391,8 @@ func generateMarkdown(summaries []CodeSummary, outputPath string) error {
 	var b strings.Builder
 	overview := computeProjectOverview(summaries)
 
-	b.WriteString("📝 # Go Code Summary\n\n")
-	b.WriteString("📊 ## Project Overview\n\n")
+	b.WriteString("# 📝 Go Code Summary\n\n")
+	b.WriteString("## 📊 Project Overview\n\n")
 	if overview.TotalFiles == 0 {
 		b.WriteString("No Go files found.\n\n")
 	} else {
@@ -408,7 +408,7 @@ func generateMarkdown(summaries []CodeSummary, outputPath string) error {
 		b.WriteString(fmt.Sprintf("- 🏥 Project Health Score: %.2f/100\n", overview.ProjectHealth))
 		b.WriteString(fmt.Sprintf("- 🚨 Risky Files: %d\n", overview.RiskyFiles))
 		b.WriteString(fmt.Sprintf("- ⏰ Estimated Refactoring Effort: %.2f hours\n", overview.EffortHours))
-		b.WriteString("- ⚡ ### Immediate Attention Required\n\n")
+		b.WriteString("### ⚡ Immediate Attention Required\n\n")
 		foundProblems := true
 		for _, summary := range summaries {
 			if len(summary.Problems) != 0 {
@@ -422,7 +422,7 @@ func generateMarkdown(summaries []CodeSummary, outputPath string) error {
 			b.WriteString("\t - Nothing immediate to fix\n\n")
 		}
 
-		b.WriteString("\n📦 ### Package Breakdown\n\n")
+		b.WriteString("\n### 📦 Package Breakdown\n\n")
 		if len(overview.PackageMetrics) == 0 {
 			b.WriteString("No packages found.\n\n")
 		} else {
@@ -446,8 +446,8 @@ func generateMarkdown(summaries []CodeSummary, outputPath string) error {
 				maxFuncLines = f.LineCount
 			}
 		}
-		b.WriteString(fmt.Sprintf("📂 ## %s (%s)\n\n", summary.Filename, summary.Package))
-		b.WriteString("📈 **Metrics**:\n")
+		b.WriteString(fmt.Sprintf("## 📂 %s (%s)\n\n", summary.Filename, summary.Package))
+		b.WriteString("📈 ***Metrics***:\n")
 		b.WriteString(fmt.Sprintf("- 📏 Lines of Code: %d\n", summary.Lines))
 		b.WriteString(fmt.Sprintf("- 🛠️ Number of Functions: %d\n", len(summary.Functions)))
 		b.WriteString(fmt.Sprintf("- 📏 Largest Function: %d lines\n", maxFuncLines))
@@ -460,7 +460,7 @@ func generateMarkdown(summaries []CodeSummary, outputPath string) error {
 		b.WriteString(fmt.Sprintf("- 🔗 External Dependencies: %d\n\n", len(summary.Imports)))
 
 		if len(summary.Types) > 0 {
-			b.WriteString("🏗️ ### Types\n\n")
+			b.WriteString("### 🏗️ Types\n\n")
 			for _, t := range summary.Types {
 				if t.Comment != "" {
 					b.WriteString(fmt.Sprintf("%s\n\n", t.Comment))
@@ -470,7 +470,7 @@ func generateMarkdown(summaries []CodeSummary, outputPath string) error {
 		}
 
 		if len(summary.Functions) > 0 {
-			b.WriteString("🛠️ ### Functions\n\n")
+			b.WriteString("### 🛠️ Functions\n\n")
 			for _, f := range summary.Functions {
 				if f.Comment != "" {
 					b.WriteString(fmt.Sprintf("%s\n\n", f.Comment))
