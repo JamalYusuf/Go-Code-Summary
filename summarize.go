@@ -413,8 +413,8 @@ func generateMarkdown(summaries []CodeSummary, outputPath string) error {
 		for _, summary := range summaries {
 			if len(summary.Problems) != 0 {
 				for _, problem := range summary.Problems {
-					b.WriteString(fmt.Sprintf("\t- ❗ Function %s Need Refactoring as complexity is: %d\n",
-						problem.FunctionName, problem.Complexity))
+					b.WriteString(fmt.Sprintf("\t- ❗ Function %s in file %s Need Refactoring as complexity is: %d ( > 10)\n",
+						problem.FunctionName, summary.Filename, problem.Complexity))
 				}
 			}
 		}
@@ -521,9 +521,10 @@ func generateHTML(summaries []CodeSummary, outputPath string) error {
 			{{range .Summaries}}
 				{{if .CodeSummary.Problems}}
 				<li> ⚡ Problems to address immediately</li>
+					📂 In File {{ .CodeSummary.Filename }}
 					<ul class="list-disc ml-6 mb-4">
 						{{range .CodeSummary.Problems}}
-							<li>❗Function {{.FunctionName}} Needs Refactoring as complexity is: {{.Complexity}}</li>
+							<li>❗Function {{.FunctionName}} Needs Refactoring as complexity is: {{.Complexity}} ( > 10) </li>
 						{{end}}
 					</ul>
 				{{end}}
@@ -564,7 +565,7 @@ func generateHTML(summaries []CodeSummary, outputPath string) error {
                     <li>📏 Lines of Code: {{.Lines}}</li>
                     <li>🛠️ Number of Functions: {{len .Functions}}</li>
                     <li>📏 Largest Function: {{.MaxFuncLines}} lines</li>
-                    <li>⚠️ Long Functions (>50 lines): {{len .LongFunctions}}</li>xw
+                    <li>⚠️ Long Functions (>50 lines): {{len .LongFunctions}}</li>
                     <li>📜 Comment-to-Code Ratio: {{printf "%.2f" .CommentRatio}}%</li>
                     <li>🧠 Average Function Complexity: {{printf "%.2f" .AvgComplexity}}</li>
                     <li>📖 Godoc Coverage: {{printf "%.2f" .GodocCoverage}}%</li>
