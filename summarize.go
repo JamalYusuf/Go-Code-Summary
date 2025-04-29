@@ -27,6 +27,13 @@ type CodeSummary struct {
 	GodocCoverage      float64
 	MaxFunctionDepth   int
 	MaintainabilityIdx float64
+	Problems           []ProblemFunction
+}
+
+// ProblemFunction struct holds a function name and its complexity if it needs immediate attention
+type ProblemFunction struct {
+	FunctionName string
+	Complexity   int64
 }
 
 // TypeDecl represents a type declaration.
@@ -94,6 +101,7 @@ func scanDirectory(root string) ([]string, error) {
 // parseFile parses a Go file and extracts detailed metrics.
 func parseFile(filename string) (CodeSummary, error) {
 	fset := token.NewFileSet()
+	problems := make([]ProblemFunction, 0)
 	f, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
 	if err != nil {
 		return CodeSummary{}, fmt.Errorf("parsing file %s: %w", filename, err)
@@ -110,7 +118,7 @@ func parseFile(filename string) (CodeSummary, error) {
 	summary.Imports = collectImports(f.Imports)
 
 	// Extract types and functions
-	metrics, err := extractDeclarations(f, fset)
+	metrics, err := extractDeclarations(f, fset, &problems)
 	if err != nil {
 		return CodeSummary{}, err
 	}
@@ -121,6 +129,7 @@ func parseFile(filename string) (CodeSummary, error) {
 	summary.AvgComplexity = metrics.avgComplexity
 	summary.GodocCoverage = metrics.godocCoverage
 	summary.MaxFunctionDepth = metrics.maxFunctionDepth
+	summary.Problems = problems
 	summary.MaintainabilityIdx = calculateMaintainability(summary.Lines, summary.CommentLines, summary.AvgComplexity)
 
 	return summary, nil
@@ -166,7 +175,7 @@ type declMetrics struct {
 }
 
 // extractDeclarations processes type and function declarations.
-func extractDeclarations(f *ast.File, fset *token.FileSet) (declMetrics, error) {
+func extractDeclarations(f *ast.File, fset *token.FileSet, problems *[]ProblemFunction) (declMetrics, error) {
 	var metrics declMetrics
 	var comments []*ast.CommentGroup
 	var exportedTypes, documentedTypes, exportedFuncs, documentedFuncs, totalComplexity int
@@ -241,6 +250,12 @@ func extractDeclarations(f *ast.File, fset *token.FileSet) (declMetrics, error) 
 			metrics.functions = append(metrics.functions, funcDeclData)
 			if lineCount > 50 {
 				metrics.longFunctions = append(metrics.longFunctions, funcDeclData)
+			}
+
+			// Add the function to the list of problem functions if the complexity is  > 10 as it'd need immediate attention
+			if funcDeclData.Complexity > 10 {
+				problem := ProblemFunction{FunctionName: funcDeclData.Name, Complexity: int64(funcDeclData.Complexity)}
+				*problems = append(*problems, problem)
 			}
 		}
 	}
@@ -376,8 +391,8 @@ func generateMarkdown(summaries []CodeSummary, outputPath string) error {
 	var b strings.Builder
 	overview := computeProjectOverview(summaries)
 
-	b.WriteString("📝 # Go Code Summary\n\n")
-	b.WriteString("📊 ## Project Overview\n\n")
+	b.WriteString("# 📝 Go Code Summary\n\n")
+	b.WriteString("## 📊 Project Overview\n\n")
 	if overview.TotalFiles == 0 {
 		b.WriteString("No Go files found.\n\n")
 	} else {
@@ -392,9 +407,22 @@ func generateMarkdown(summaries []CodeSummary, outputPath string) error {
 		b.WriteString(fmt.Sprintf("- 🔗 External Dependencies: %d\n", overview.DependencyCount))
 		b.WriteString(fmt.Sprintf("- 🏥 Project Health Score: %.2f/100\n", overview.ProjectHealth))
 		b.WriteString(fmt.Sprintf("- 🚨 Risky Files: %d\n", overview.RiskyFiles))
-		b.WriteString(fmt.Sprintf("- ⏰ Estimated Refactoring Effort: %.2f hours\n\n", overview.EffortHours))
+		b.WriteString(fmt.Sprintf("- ⏰ Estimated Refactoring Effort: %.2f hours\n", overview.EffortHours))
+		b.WriteString("### ⚡ Immediate Attention Required\n\n")
+		foundProblems := true
+		for _, summary := range summaries {
+			if len(summary.Problems) != 0 {
+				for _, problem := range summary.Problems {
+					b.WriteString(fmt.Sprintf("\t- ❗ Function %s in file %s Need Refactoring as complexity is: %d ( > 10)\n",
+						problem.FunctionName, summary.Filename, problem.Complexity))
+				}
+			}
+		}
+		if !foundProblems {
+			b.WriteString("\t - Nothing immediate to fix\n\n")
+		}
 
-		b.WriteString("📦 ### Package Breakdown\n\n")
+		b.WriteString("\n### 📦 Package Breakdown\n\n")
 		if len(overview.PackageMetrics) == 0 {
 			b.WriteString("No packages found.\n\n")
 		} else {
@@ -418,8 +446,8 @@ func generateMarkdown(summaries []CodeSummary, outputPath string) error {
 				maxFuncLines = f.LineCount
 			}
 		}
-		b.WriteString(fmt.Sprintf("📂 ## %s (%s)\n\n", summary.Filename, summary.Package))
-		b.WriteString("📈 **Metrics**:\n")
+		b.WriteString(fmt.Sprintf("## 📂 %s (%s)\n\n", summary.Filename, summary.Package))
+		b.WriteString("📈 ***Metrics***:\n")
 		b.WriteString(fmt.Sprintf("- 📏 Lines of Code: %d\n", summary.Lines))
 		b.WriteString(fmt.Sprintf("- 🛠️ Number of Functions: %d\n", len(summary.Functions)))
 		b.WriteString(fmt.Sprintf("- 📏 Largest Function: %d lines\n", maxFuncLines))
@@ -432,7 +460,7 @@ func generateMarkdown(summaries []CodeSummary, outputPath string) error {
 		b.WriteString(fmt.Sprintf("- 🔗 External Dependencies: %d\n\n", len(summary.Imports)))
 
 		if len(summary.Types) > 0 {
-			b.WriteString("🏗️ ### Types\n\n")
+			b.WriteString("### 🏗️ Types\n\n")
 			for _, t := range summary.Types {
 				if t.Comment != "" {
 					b.WriteString(fmt.Sprintf("%s\n\n", t.Comment))
@@ -442,7 +470,7 @@ func generateMarkdown(summaries []CodeSummary, outputPath string) error {
 		}
 
 		if len(summary.Functions) > 0 {
-			b.WriteString("🛠️ ### Functions\n\n")
+			b.WriteString("### 🛠️ Functions\n\n")
 			for _, f := range summary.Functions {
 				if f.Comment != "" {
 					b.WriteString(fmt.Sprintf("%s\n\n", f.Comment))
@@ -490,6 +518,17 @@ func generateHTML(summaries []CodeSummary, outputPath string) error {
             <li>🏥 Project Health Score: {{printf "%.2f" .ProjectOverview.ProjectHealth}}/100</li>
             <li>🚨 Risky Files: {{.ProjectOverview.RiskyFiles}}</li>
             <li>⏰ Estimated Refactoring Effort: {{printf "%.2f" .ProjectOverview.EffortHours}} hours</li>
+			{{range .Summaries}}
+				{{if .CodeSummary.Problems}}
+				<li> ⚡ Problems to address immediately</li>
+					📂 In File {{ .CodeSummary.Filename }}
+					<ul class="list-disc ml-6 mb-4">
+						{{range .CodeSummary.Problems}}
+							<li>❗Function {{.FunctionName}} Needs Refactoring as complexity is: {{.Complexity}} ( > 10) </li>
+						{{end}}
+					</ul>
+				{{end}}
+			{{end}}
         </ul>
         <h3 class="text-lg font-medium mb-2">📦 Package Breakdown</h3>
         {{if .ProjectOverview.PackageMetrics}}
